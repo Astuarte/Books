@@ -488,9 +488,9 @@
     updateDocListActiveState();
     showLoader(true, `Loading ${fileName}...`);
 
+    let loadingTask = null;
     try {
       let arrayBuffer = await PDFCacheDB.get(fileName);
-      let loadingTask;
 
       if (arrayBuffer) {
         meta.status = 'cached';
@@ -574,7 +574,7 @@
       if (activeDownloadController === controller) {
         activeDownloadController = null;
       }
-      if (activeLoadingTask === loadingTask) {
+      if (loadingTask && activeLoadingTask === loadingTask) {
         activeLoadingTask = null;
       }
     }
@@ -1083,7 +1083,26 @@
     }
   }
 
+  async function forceRenderPageNeighborhood(docObj, targetPageNum) {
+    if (!docObj || !docObj.pdfDoc || docObj.id !== state.currentDocId) return;
+    const start = Math.max(1, targetPageNum - 2);
+    const end = Math.min(docObj.totalPages, targetPageNum + 2);
+    for (let i = start; i <= end; i++) {
+      const container = document.getElementById(`pdf-page-${i}`);
+      const canvas = container ? container.querySelector('canvas') : null;
+      if (container && canvas && !canvas.getAttribute('data-rendered')) {
+        canvas.setAttribute('data-rendered', 'true');
+        const page1 = await docObj.pdfDoc.getPage(1);
+        const unscaledViewport = page1.getViewport({ scale: 1.0, rotation: state.rotation });
+        const scale = calculateFitScale(unscaledViewport);
+        const outputScale = window.devicePixelRatio || 1;
+        await renderPageCanvasToContainer(docObj, i, container, canvas, scale, outputScale);
+      }
+    }
+  }
+
   async function renderSinglePageCanvas(docObj, pageNum, canvas) {
+    if (!docObj || !docObj.pdfDoc || docObj.id !== state.currentDocId) return;
     showLoader(true, "Rendering page...");
     try {
       const page = await docObj.pdfDoc.getPage(pageNum);
@@ -1102,6 +1121,7 @@
       if (parentContainer) {
         parentContainer.style.width = Math.floor(viewport.width) + "px";
         parentContainer.style.height = Math.floor(viewport.height) + "px";
+        parentContainer.style.setProperty('--scale-factor', viewport.scale);
       }
 
       const ctx = canvas.getContext('2d');
@@ -1122,6 +1142,7 @@
 
         textLayerDiv.style.width = Math.floor(viewport.width) + "px";
         textLayerDiv.style.height = Math.floor(viewport.height) + "px";
+        textLayerDiv.style.setProperty('--scale-factor', viewport.scale);
 
         try {
           const textContent = await page.getTextContent();
@@ -1145,6 +1166,7 @@
   }
 
   async function renderPageCanvasToContainer(docObj, pageNum, containerEl, canvasEl, scale, outputScale) {
+    if (!docObj || !docObj.pdfDoc || docObj.id !== state.currentDocId) return;
     try {
       const page = await docObj.pdfDoc.getPage(pageNum);
       const viewport = page.getViewport({ scale: scale, rotation: state.rotation });
@@ -1156,6 +1178,7 @@
 
       containerEl.style.width = Math.floor(viewport.width) + "px";
       containerEl.style.height = Math.floor(viewport.height) + "px";
+      containerEl.style.setProperty('--scale-factor', viewport.scale);
 
       const ctx = canvasEl.getContext('2d');
       ctx.scale(outputScale, outputScale);
@@ -1164,6 +1187,7 @@
 
       // Defer text selection layer rendering to allow graphic canvas to display instantly
       setTimeout(async () => {
+        if (!docObj || !docObj.pdfDoc || docObj.id !== state.currentDocId) return;
         try {
           let textLayerDiv = containerEl.querySelector('.textLayer');
           if (!textLayerDiv) {
@@ -1176,6 +1200,7 @@
 
           textLayerDiv.style.width = Math.floor(viewport.width) + "px";
           textLayerDiv.style.height = Math.floor(viewport.height) + "px";
+          textLayerDiv.style.setProperty('--scale-factor', viewport.scale);
 
           const textContent = await page.getTextContent();
           if (pdfjsLib.renderTextLayer) {
@@ -1191,7 +1216,9 @@
         }
       }, 40);
     } catch (e) {
-      console.error(`Error rendering page ${pageNum} in continuous view`, e);
+      if (docObj && docObj.id === state.currentDocId) {
+        console.error(`Error rendering page ${pageNum} in continuous view`, e);
+      }
     }
   }
 
