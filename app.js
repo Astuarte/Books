@@ -506,6 +506,20 @@
       }
 
       activeLoadingTask = loadingTask;
+
+      loadingTask.onProgress = (progress) => {
+        if (controller.signal.aborted) return;
+        if (progress.total > 0) {
+          const percent = Math.round((progress.loaded / progress.total) * 100);
+          const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
+          const totalMB = (progress.total / (1024 * 1024)).toFixed(1);
+          showLoader(true, `Loading ${fileName}: ${percent}% (${loadedMB} MB / ${totalMB} MB)...`);
+        } else if (progress.loaded > 0) {
+          const loadedMB = (progress.loaded / (1024 * 1024)).toFixed(1);
+          showLoader(true, `Loading ${fileName}: ${loadedMB} MB...`);
+        }
+      };
+
       const pdfDoc = await loadingTask.promise;
 
       if (controller.signal.aborted) return;
