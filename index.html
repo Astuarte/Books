@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LexPDF Studio - Advanced PDF Viewer & N-Up Export Tool</title>
+  <meta name="description" content="Sleek HTML/JS PDF viewer and layout exporter supporting custom 8x11 and 8x13 paper sizes, N-up multi-page grid layouts, and portrait/landscape orientation.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- PDF.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // Set PDF.js worker URL
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+
+  <!-- jsPDF CDN for creating N-Up formatted PDFs -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- PDF.js Text Layer CSS for Text Selection & Highlighting -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf_viewer.min.css">
+
+  <!-- App Styles -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+  <div id="app" class="app-container">
+    
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <i data-lucide="file-text"></i>
+        </div>
+        <div class="brand-text">
+          <h1>LexPDF <span class="badge">Studio</span></h1>
+          <p class="subtitle">Viewer & Layout Exporter</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-export-modal" class="btn btn-primary btn-glow" title="Configure layout & export PDF">
+          <i data-lucide="layout-grid"></i>
+          <span>Export & Format</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <div class="workspace">
+      
+      <!-- Left Sidebar Panel -->
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-tabs">
+          <button id="tab-btn-docs" class="tab-btn active" data-tab="tab-docs" title="Directory Documents">
+            <i data-lucide="files"></i>
+            <span>Documents (<span id="doc-count">0</span>)</span>
+          </button>
+          <button id="tab-btn-thumbs" class="tab-btn" data-tab="tab-thumbs" title="Page Thumbnails">
+            <i data-lucide="grid"></i>
+            <span>Thumbnails</span>
+          </button>
+        </div>
+
+        <!-- Sidebar Content: Document List -->
+        <div id="tab-docs" class="tab-content active">
+          <div class="sidebar-search">
+            <i data-lucide="search"></i>
+            <input type="text" id="doc-search-input" placeholder="Search files in folder...">
+          </div>
+          <div id="doc-list" class="doc-list">
+            <div class="empty-state">
+              <i data-lucide="folder-search"></i>
+              <p>No PDFs loaded yet.</p>
+              <span class="subtext">Click <strong>Open Folder</strong>, drag & drop files here, or try <strong>Load Sample PDF</strong>.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar Content: Page Thumbnails -->
+        <div id="tab-thumbs" class="tab-content">
+          <div id="thumbs-list" class="thumbs-list">
+            <div class="empty-state">
+              <i data-lucide="image"></i>
+              <p>No document selected</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar Collapse Toggle Button -->
+        <button id="btn-toggle-sidebar" class="sidebar-toggle" title="Toggle Sidebar">
+          <i data-lucide="chevron-left"></i>
+        </button>
+      </aside>
+
+      <!-- Main Viewer Area -->
+      <main class="viewer-container">
+        
+        <!-- Viewer Control Toolbar -->
+        <div class="viewer-toolbar">
+          <div class="toolbar-group">
+            <button id="btn-prev-page" class="icon-btn" title="Previous Page (Left Arrow)">
+              <i data-lucide="chevron-up"></i>
+            </button>
+            <div class="page-num-display">
+              <span>Page</span>
+              <input type="number" id="page-num-input" value="1" min="1" max="1">
+              <span>of <span id="page-count-display">0</span></span>
+            </div>
+            <button id="btn-next-page" class="icon-btn" title="Next Page (Right Arrow)">
+              <i data-lucide="chevron-down"></i>
+            </button>
+          </div>
+
+          <div class="divider-vertical"></div>
+
+          <div class="toolbar-group">
+            <button id="btn-zoom-out" class="icon-btn" title="Zoom Out (-)">
+              <i data-lucide="zoom-out"></i>
+            </button>
+            <select id="zoom-select" class="zoom-select" title="Zoom Level">
+              <option value="auto">Automatic Fit</option>
+              <option value="page-fit">Fit Page</option>
+              <option value="page-width">Fit Width</option>
+              <option value="0.5">50%</option>
+              <option value="0.75">75%</option>
+              <option value="1" selected>100%</option>
+              <option value="1.25">125%</option>
+              <option value="1.5">150%</option>
+              <option value="2">200%</option>
+              <option value="3">300%</option>
+            </select>
+            <button id="btn-zoom-in" class="icon-btn" title="Zoom In (+)">
+              <i data-lucide="zoom-in"></i>
+            </button>
+          </div>
+
+          <div class="divider-vertical"></div>
+
+          <div class="toolbar-group">
+            <button id="btn-rotate-left" class="icon-btn" title="Rotate Left 90°">
+              <i data-lucide="rotate-ccw"></i>
+            </button>
+            <button id="btn-rotate-right" class="icon-btn" title="Rotate Right 90°">
+              <i data-lucide="rotate-cw"></i>
+            </button>
+          </div>
+
+          <div class="divider-vertical"></div>
+
+          <div class="toolbar-group">
+            <button id="btn-toggle-layout" class="btn btn-secondary btn-sm" title="Toggle Page View (Continuous Scroll vs Single Page)">
+              <i data-lucide="layers"></i>
+              <span id="layout-mode-label">Continuous View</span>
+            </button>
+          </div>
+
+          <div class="divider-vertical"></div>
+
+          <div class="toolbar-group right-group">
+            <span id="doc-title-badge" class="doc-title-badge">No File Open</span>
+            <button id="btn-fullscreen" class="icon-btn" title="Toggle Fullscreen">
+              <i data-lucide="maximize-2"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Scrollable Stage for PDF Page Canvases -->
+        <div id="viewer-stage" class="viewer-stage">
+          <div id="drop-zone" class="drop-zone hidden">
+            <div class="drop-zone-box">
+              <i data-lucide="upload-cloud"></i>
+              <h3>Drop PDF Files or Directory Here</h3>
+              <p>Supports single/multiple PDFs or folder drops</p>
+            </div>
+          </div>
+
+          <div id="pdf-view-wrapper" class="pdf-view-wrapper">
+            <!-- Rendered Canvas will be inserted here -->
+            <canvas id="pdf-canvas"></canvas>
+            <div id="viewer-loader" class="viewer-loader hidden">
+              <div class="spinner"></div>
+              <span>Rendering PDF page...</span>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- Export & Layout Customizer Modal -->
+    <div id="export-modal" class="modal-overlay hidden">
+      <div class="modal-card">
+        
+        <div class="modal-header">
+          <div class="modal-title">
+            <i data-lucide="layout-grid"></i>
+            <div>
+              <h2>PDF Export & N-Up Page Layout Formatter</h2>
+              <p>Configure paper sizes, pages per sheet, and orientation before downloading</p>
+            </div>
+          </div>
+          <button id="btn-close-export-modal" class="icon-btn modal-close" title="Close Modal">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+
+        <div class="modal-body">
+          
+          <!-- Left Controls Column -->
+          <div class="export-controls-panel">
+            
+            <!-- Section 1: Pages Per Sheet (Custom Grid Layout) -->
+            <div class="control-section">
+              <label class="section-label">
+                <i data-lucide="grid"></i>
+                <span>(a) Pages Per Layout Sheet</span>
+              </label>
+              
+              <div class="custom-grid-card">
+                <div class="custom-grid-inputs">
+                  <div class="grid-input-field">
+                    <label for="custom-cols">Columns</label>
+                    <input type="number" id="custom-cols" value="2" min="1" max="10" title="Columns">
+                  </div>
+                  <span class="grid-times">&times;</span>
+                  <div class="grid-input-field">
+                    <label for="custom-rows">Rows</label>
+                    <input type="number" id="custom-rows" value="1" min="1" max="10" title="Rows">
+                  </div>
+                </div>
+                <div class="grid-info-badge">
+                  <i data-lucide="layers"></i>
+                  <span>Total <strong id="grid-total-count">2</strong> PDF pages per layout sheet</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Section 2: Paper Size Selection -->
+            <div class="control-section">
+              <label class="section-label">
+                <i data-lucide="file"></i>
+                <span>(b) Export Paper Size</span>
+              </label>
+              
+              <div class="radio-group-vertical">
+                <label class="radio-option highlight-option">
+                  <input type="radio" name="paper-size" value="8x13">
+                  <div class="radio-content">
+                    <span class="radio-title">8.0&quot; &times; 13.0&quot; (8 inches by 13 inches)</span>
+                    <span class="radio-desc">Legal / Long Bond Paper standard (576pt &times; 936pt)</span>
+                  </div>
+                </label>
+
+                <label class="radio-option highlight-option">
+                  <input type="radio" name="paper-size" value="8x11" checked>
+                  <div class="radio-content">
+                    <span class="radio-title">8.0&quot; &times; 11.0&quot; (8 inches by 11 inches)</span>
+                    <span class="radio-desc">Standard Compact Letter (576pt &times; 792pt)</span>
+                  </div>
+                </label>
+
+                <label class="radio-option">
+                  <input type="radio" name="paper-size" value="a4">
+                  <div class="radio-content">
+                    <span class="radio-title">A4 (210mm &times; 297mm / 8.27&quot; &times; 11.69&quot;)</span>
+                    <span class="radio-desc">International Standard ISO A4 (595.3pt &times; 841.9pt)</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Section 3: Page Orientation -->
+            <div class="control-section">
+              <label class="section-label">
+                <i data-lucide="compass"></i>
+                <span>(c) Page Orientation</span>
+              </label>
+              
+              <div class="segmented-control">
+                <button class="segment-btn" data-orientation="portrait">
+                  <i data-lucide="file-input"></i>
+                  <span>Portrait</span>
+                </button>
+                <button class="segment-btn active" data-orientation="landscape">
+                  <i data-lucide="file-output"></i>
+                  <span>Landscape</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Section 4: Formatting & Layout Style Options -->
+            <div class="control-section">
+              <label class="section-label">
+                <i data-lucide="sliders"></i>
+                <span>Page Formatting Options</span>
+              </label>
+              
+              <div class="options-form">
+                <div class="form-row">
+                  <label for="margin-select">Sheet Margins:</label>
+                  <select id="margin-select">
+                    <option value="tight">Tight (0.15 inch)</option>
+                    <option value="normal" selected>Normal (0.3 inch)</option>
+                    <option value="wide">Wide (0.5 inch)</option>
+                    <option value="none">None (0 inch)</option>
+                  </select>
+                </div>
+
+                <div class="form-row">
+                  <label for="border-checkbox" class="checkbox-label">
+                    <input type="checkbox" id="border-checkbox">
+                    <span>Draw subtle lines/borders around PDF pages</span>
+                  </label>
+                </div>
+
+                <div class="form-row">
+                  <label for="page-number-checkbox" class="checkbox-label">
+                    <input type="checkbox" id="page-number-checkbox">
+                    <span>Add sheet page numbers at footer</span>
+                  </label>
+                </div>
+
+                <div class="form-row">
+                  <label for="export-page-range">Export Page Range:</label>
+                  <input type="text" id="export-page-range" placeholder="e.g. 1-10, 12, 15-20 (Leave blank for All)">
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Right Live Preview Column -->
+          <div class="export-preview-panel">
+            <div class="preview-header">
+              <div class="preview-title">
+                <i data-lucide="eye"></i>
+                <span>Live Sheet Layout Preview</span>
+              </div>
+              <div class="preview-nav">
+                <button id="btn-prev-sheet" class="btn btn-sm btn-ghost" title="Previous Exported Sheet">
+                  <i data-lucide="chevron-left"></i>
+                </button>
+                <span class="sheet-counter">Sheet <span id="current-sheet-num">1</span> of <span id="total-sheets-num">1</span></span>
+                <button id="btn-next-sheet" class="btn btn-sm btn-ghost" title="Next Exported Sheet">
+                  <i data-lucide="chevron-right"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Live Sheet Preview Canvas Container -->
+            <div class="preview-canvas-wrapper">
+              <div id="preview-sheet-stage" class="sheet-paper">
+                <canvas id="preview-canvas"></canvas>
+              </div>
+            </div>
+
+            <!-- Summary Stats Footer -->
+            <div class="preview-summary">
+              <div class="summary-item">
+                <span class="label">Total PDF Pages:</span>
+                <span id="sum-source-pages" class="value">0</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">Export Paper:</span>
+                <span id="sum-paper-spec" class="value">8" x 11" (Portrait)</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">Output Sheets:</span>
+                <span id="sum-output-sheets" class="value">0 Sheets</span>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="modal-footer">
+          <div id="export-status" class="export-status">
+            <span id="export-status-text">Ready to export.</span>
+            <div id="export-progress-bar" class="progress-bar hidden">
+              <div id="export-progress-fill" class="progress-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button id="btn-cancel-export" class="btn btn-ghost">Cancel</button>
+            <button id="btn-run-export" class="btn btn-primary btn-glow">
+              <i data-lucide="download"></i>
+              <span>Download Exported PDF</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- App Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>

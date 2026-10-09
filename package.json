@@ -1,0 +1,15 @@
+{
+  "name": "school-of-law-programs-for-sharing-files",
+  "version": "1.0.0",
+  "description": "> **Sleek HTML/JS PDF Viewer & Custom N-Up Layout Exporter**   > Designed for law students, legal practitioners, researchers, and professionals who need high-speed PDF viewing, directory scanning, and customizable multi-page sheet layout exports (including **8\"x11\"** and **8\"x13\"** paper sizes).",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "jspdf": "^4.2.1"
+  }
+}
