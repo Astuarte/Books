@@ -990,21 +990,39 @@
           state.isScrollingToPage = false;
         }, 400);
 
-        // Lazy Render Observer for remaining pages on scroll
+        // Virtual Window Observer: Render canvas when near viewport, evict when far
         state.pageObserver = new IntersectionObserver((entries) => {
           entries.forEach(entry => {
+            const pageNum = parseInt(entry.target.getAttribute('data-page-num'), 10);
+            const canvas = entry.target.querySelector('canvas');
+            if (!canvas) return;
+
             if (entry.isIntersecting) {
-              const pageNum = parseInt(entry.target.getAttribute('data-page-num'), 10);
-              const canvas = entry.target.querySelector('canvas');
-              if (canvas && !canvas.getAttribute('data-rendered')) {
+              if (!canvas.getAttribute('data-rendered')) {
                 canvas.setAttribute('data-rendered', 'true');
                 renderPageCanvasToContainer(docObj, pageNum, entry.target, canvas, scale, outputScale);
+              }
+            } else {
+              // Memory Optimization: Evict canvases > 1400px outside viewport to keep RAM usage tiny for large PDFs
+              const rect = entry.boundingClientRect;
+              const rootRect = DOM.viewerStage.getBoundingClientRect();
+              const isFarAbove = rect.bottom < rootRect.top - 1400;
+              const isFarBelow = rect.top > rootRect.bottom + 1400;
+
+              if ((isFarAbove || isFarBelow) && pageNum !== state.currentPageNum && pageNum > 1) {
+                if (canvas.getAttribute('data-rendered')) {
+                  canvas.removeAttribute('data-rendered');
+                  canvas.width = 0;
+                  canvas.height = 0;
+                  const textLayer = entry.target.querySelector('.textLayer');
+                  if (textLayer) textLayer.innerHTML = '';
+                }
               }
             }
           });
         }, {
           root: DOM.viewerStage,
-          rootMargin: '600px 0px 600px 0px',
+          rootMargin: '800px 0px 800px 0px',
           threshold: 0.01
         });
 
@@ -1130,32 +1148,34 @@
 
       await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
-      // Render Text Selection Layer
-      let textLayerDiv = containerEl.querySelector('.textLayer');
-      if (!textLayerDiv) {
-        textLayerDiv = document.createElement('div');
-        textLayerDiv.className = 'textLayer';
-        containerEl.appendChild(textLayerDiv);
-      } else {
-        textLayerDiv.innerHTML = '';
-      }
+      // Defer text selection layer rendering to allow graphic canvas to display instantly
+      setTimeout(async () => {
+        try {
+          let textLayerDiv = containerEl.querySelector('.textLayer');
+          if (!textLayerDiv) {
+            textLayerDiv = document.createElement('div');
+            textLayerDiv.className = 'textLayer';
+            containerEl.appendChild(textLayerDiv);
+          } else {
+            textLayerDiv.innerHTML = '';
+          }
 
-      textLayerDiv.style.width = Math.floor(viewport.width) + "px";
-      textLayerDiv.style.height = Math.floor(viewport.height) + "px";
+          textLayerDiv.style.width = Math.floor(viewport.width) + "px";
+          textLayerDiv.style.height = Math.floor(viewport.height) + "px";
 
-      try {
-        const textContent = await page.getTextContent();
-        if (pdfjsLib.renderTextLayer) {
-          pdfjsLib.renderTextLayer({
-            textContentSource: textContent,
-            container: textLayerDiv,
-            viewport: viewport,
-            textDivs: []
-          });
+          const textContent = await page.getTextContent();
+          if (pdfjsLib.renderTextLayer) {
+            pdfjsLib.renderTextLayer({
+              textContentSource: textContent,
+              container: textLayerDiv,
+              viewport: viewport,
+              textDivs: []
+            });
+          }
+        } catch (textErr) {
+          console.warn("Text layer rendering notice", textErr);
         }
-      } catch (textErr) {
-        console.error("Text layer rendering notice", textErr);
-      }
+      }, 40);
     } catch (e) {
       console.error(`Error rendering page ${pageNum} in continuous view`, e);
     }
