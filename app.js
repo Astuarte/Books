@@ -1,5 +1,5 @@
 /**
- * LexPDF Studio - Main Application Logic
+ * BookShare - Main Application Logic
  * PDF Viewer, Local Directory Scanner, and N-Up Layout PDF Exporter
  */
 
@@ -9,7 +9,9 @@
   // State Management
   const state = {
     documents: [],           // List of PDF documents loaded { id, name, size, data, pdfDoc, totalPages }
+    documentsMeta: [],       // Metadata list for available books from manifest/cache
     currentDocId: null,      // Currently active document ID
+    currentDocFileName: null,// Currently active document file name
     currentPageNum: 1,       // Active page number in main viewer
     zoomScale: 1.0,          // Current zoom scale (number or 'page-fit' / 'page-width' / 'auto')
     rotation: 0,             // Current rotation angle (0, 90, 180, 270)
@@ -311,13 +313,76 @@
     "Duka_LegEth_Chapter4.pdf"
   ];
 
+  // IndexedDB Storage Manager for caching PDF ArrayBuffers locally
+  const PDFCacheDB = {
+    dbName: 'BookShareCache',
+    storeName: 'pdf_blobs',
+    dbPromise: null,
+
+    init() {
+      if (!this.dbPromise) {
+        this.dbPromise = new Promise((resolve, reject) => {
+          if (!window.indexedDB) {
+            return reject(new Error('IndexedDB not supported'));
+          }
+          const req = indexedDB.open(this.dbName, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(this.storeName)) {
+              db.createObjectStore(this.storeName);
+            }
+          };
+          req.onsuccess = (e) => resolve(e.target.result);
+          req.onerror = (e) => reject(e.target.error);
+        });
+      }
+      return this.dbPromise;
+    },
+
+    async get(fileName) {
+      try {
+        const db = await this.init();
+        return new Promise((resolve) => {
+          const tx = db.transaction(this.storeName, 'readonly');
+          const store = tx.objectStore(this.storeName);
+          const req = store.get(fileName);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+      } catch (e) {
+        return null;
+      }
+    },
+
+    async set(fileName, arrayBuffer) {
+      try {
+        const db = await this.init();
+        return new Promise((resolve) => {
+          const tx = db.transaction(this.storeName, 'readwrite');
+          const store = tx.objectStore(this.storeName);
+          store.put(arrayBuffer, fileName);
+          tx.oncomplete = () => resolve(true);
+          tx.onerror = () => resolve(false);
+        });
+      } catch (e) {
+        return false;
+      }
+    },
+
+    async has(fileName) {
+      const val = await this.get(fileName);
+      return val !== null && val !== undefined;
+    }
+  };
+
+  let activeDownloadController = null;
+
   // File Loading Logic
   async function autoLoadFolderDocuments() {
     let fileList = [];
 
-    // Try fetching manifest.json
+    // Step 1: Fetch document manifest immediately
     try {
-      showLoader(true, "Scanning documents folder...");
       const response = await fetch('documents/manifest.json');
       if (response.ok) {
         const fetchedList = await response.json();
@@ -333,37 +398,150 @@
       fileList = DEFAULT_PDF_MANIFEST;
     }
 
-    let firstDocSelected = false;
-
-    for (let i = 0; i < fileList.length; i++) {
-      const fileName = fileList[i];
-      showLoader(true, `Loading ${fileName} (${i + 1} of ${fileList.length})...`);
-
-      try {
-        // Try candidate relative paths for GitHub Pages compatibility
-        let pdfResp = await fetch(`documents/${encodeURI(fileName)}`);
-        if (!pdfResp.ok) {
-          pdfResp = await fetch(`./documents/${encodeURI(fileName)}`);
-        }
-
-        if (pdfResp.ok) {
-          const arrayBuffer = await pdfResp.arrayBuffer();
-          const docObj = await addPdfDocument(fileName, arrayBuffer.byteLength, arrayBuffer, false);
-
-          // Select the very first successfully loaded document immediately
-          if (docObj && !firstDocSelected) {
-            firstDocSelected = true;
-            selectDocument(docObj.id);
-          }
-        } else {
-          console.error(`Failed to fetch ${fileName}: HTTP status ${pdfResp.status}`);
-        }
-      } catch (e) {
-        console.error("Error loading PDF file: " + fileName, e);
-      }
+    // Step 2: Immediately populate state.documentsMeta and update sidebar UI
+    state.documentsMeta = [];
+    for (const fileName of fileList) {
+      const isCached = await PDFCacheDB.has(fileName);
+      state.documentsMeta.push({
+        id: 'doc_' + Math.random().toString(36).substring(2, 9),
+        fileName: fileName,
+        size: null,
+        totalPages: null,
+        pdfDoc: null,
+        data: null,
+        status: isCached ? 'cached' : 'idle'
+      });
     }
 
-    showLoader(false);
+    // Render book list on documents tab right away!
+    updateDocListUI();
+
+    // Step 3: Focus on loading the first book immediately
+    if (state.documentsMeta.length > 0) {
+      loadAndFocusBook(state.documentsMeta[0].fileName);
+    }
+  }
+
+  async function loadAndFocusBook(fileName) {
+    let meta = state.documentsMeta.find(m => m.fileName === fileName);
+    if (!meta) return;
+
+    // Abort previous download if any active
+    if (activeDownloadController) {
+      activeDownloadController.abort();
+      activeDownloadController = null;
+    }
+
+    state.currentDocFileName = fileName;
+
+    // If already fully parsed in memory
+    if (meta.pdfDoc && meta.id) {
+      selectDocument(meta.id);
+      updateDocListActiveState();
+      return;
+    }
+
+    const controller = new AbortController();
+    activeDownloadController = controller;
+
+    meta.status = 'loading';
+    updateDocListUI();
+    updateDocListActiveState();
+    showLoader(true, `Loading ${fileName}...`);
+
+    try {
+      let arrayBuffer = await PDFCacheDB.get(fileName);
+      if (arrayBuffer) {
+        meta.status = 'cached';
+      } else {
+        // Download from server with cancellation support
+        let pdfResp = await fetch(`documents/${encodeURI(fileName)}`, { signal: controller.signal });
+        if (!pdfResp.ok) {
+          pdfResp = await fetch(`./documents/${encodeURI(fileName)}`, { signal: controller.signal });
+        }
+        if (!pdfResp.ok) throw new Error(`HTTP ${pdfResp.status}`);
+
+        arrayBuffer = await pdfResp.arrayBuffer();
+        // Save into IndexedDB for instant future reloads
+        await PDFCacheDB.set(fileName, arrayBuffer);
+      }
+
+      if (controller.signal.aborted) return;
+
+      // Parse with PDF.js
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+      const pdfDoc = await loadingTask.promise;
+
+      meta.pdfDoc = pdfDoc;
+      meta.totalPages = pdfDoc.numPages;
+      meta.data = arrayBuffer;
+      meta.size = formatFileSize(arrayBuffer.byteLength);
+      meta.status = 'ready';
+
+      let docObj = state.documents.find(d => d.name === fileName);
+      if (!docObj) {
+        docObj = {
+          id: meta.id,
+          name: fileName,
+          size: meta.size,
+          data: arrayBuffer,
+          pdfDoc: pdfDoc,
+          totalPages: pdfDoc.numPages
+        };
+        state.documents.push(docObj);
+      }
+
+      updateDocListUI();
+
+      if (state.currentDocFileName === fileName) {
+        selectDocument(meta.id);
+      }
+
+      showLoader(false);
+
+      // Store remaining books in background cache
+      backgroundCacheRemainingBooks();
+
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log(`Download aborted for ${fileName}`);
+      } else {
+        console.error(`Error loading ${fileName}:`, err);
+        meta.status = 'error';
+        updateDocListUI();
+        showLoader(false);
+      }
+    } finally {
+      if (activeDownloadController === controller) {
+        activeDownloadController = null;
+      }
+    }
+  }
+
+  async function backgroundCacheRemainingBooks() {
+    const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1000));
+    scheduleIdle(async () => {
+      for (const meta of state.documentsMeta) {
+        if (activeDownloadController) break;
+        if (!meta.pdfDoc) {
+          const isCached = await PDFCacheDB.has(meta.fileName);
+          if (!isCached) {
+            try {
+              let pdfResp = await fetch(`documents/${encodeURI(meta.fileName)}`);
+              if (!pdfResp.ok) pdfResp = await fetch(`./documents/${encodeURI(meta.fileName)}`);
+              if (pdfResp.ok) {
+                const buf = await pdfResp.arrayBuffer();
+                await PDFCacheDB.set(meta.fileName, buf);
+                meta.status = 'cached';
+                updateDocListUI();
+              }
+            } catch (e) {
+              console.warn(`[Background Cache] Failed to cache ${meta.fileName}:`, e);
+            }
+          }
+        }
+      }
+    });
   }
 
   async function handleFileList(files) {
@@ -375,6 +553,7 @@
     for (const file of pdfFiles) {
       try {
         const arrayBuffer = await file.arrayBuffer();
+        await PDFCacheDB.set(file.name, arrayBuffer);
         await addPdfDocument(file.name, file.size, arrayBuffer, true);
       } catch (err) {
         console.error("Error reading file: " + file.name, err);
@@ -388,7 +567,6 @@
     const docId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
 
     try {
-      // Load document via PDF.js
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
       const pdfDoc = await loadingTask.promise;
 
@@ -402,6 +580,28 @@
       };
 
       state.documents.push(docObj);
+
+      let meta = state.documentsMeta.find(m => m.fileName === name);
+      if (!meta) {
+        meta = {
+          id: docId,
+          fileName: name,
+          size: docObj.size,
+          totalPages: docObj.totalPages,
+          pdfDoc: pdfDoc,
+          data: arrayBuffer,
+          status: 'ready'
+        };
+        state.documentsMeta.push(meta);
+      } else {
+        meta.id = docId;
+        meta.size = docObj.size;
+        meta.totalPages = docObj.totalPages;
+        meta.pdfDoc = pdfDoc;
+        meta.data = arrayBuffer;
+        meta.status = 'ready';
+      }
+
       updateDocListUI();
 
       if (autoSelect) {
@@ -419,6 +619,7 @@
     if (!docObj) return;
 
     state.currentDocId = docId;
+    state.currentDocFileName = docObj.name;
     state.currentPageNum = 1;
     state.rotation = 0;
 
@@ -435,16 +636,17 @@
     }
   }
 
-  function removeDocument(docId, e) {
-    if (e) e.stopPropagation();
-    state.documents = state.documents.filter(d => d.id !== docId);
+  function removeDocumentByFileName(fileName) {
+    state.documentsMeta = state.documentsMeta.filter(m => m.fileName !== fileName);
+    state.documents = state.documents.filter(d => d.name !== fileName);
     updateDocListUI();
 
-    if (state.currentDocId === docId) {
-      if (state.documents.length > 0) {
-        selectDocument(state.documents[0].id);
+    if (state.currentDocFileName === fileName) {
+      if (state.documentsMeta.length > 0) {
+        loadAndFocusBook(state.documentsMeta[0].fileName);
       } else {
         state.currentDocId = null;
+        state.currentDocFileName = null;
         DOM.docTitleBadge.textContent = "No File Open";
         DOM.pageCountDisplay.textContent = "0";
         DOM.pageNumInput.value = "1";
@@ -454,40 +656,59 @@
   }
 
   function updateDocListUI() {
-    DOM.docCount.textContent = state.documents.length;
+    const listToRender = state.documentsMeta.length > 0 ? state.documentsMeta : state.documents;
+    DOM.docCount.textContent = listToRender.length;
     DOM.docList.innerHTML = '';
 
-    if (state.documents.length === 0) {
+    if (listToRender.length === 0) {
       DOM.docList.innerHTML = `
         <div class="empty-state">
           <i data-lucide="folder-search"></i>
           <p>No PDFs loaded yet.</p>
-          <span class="subtext">Click <strong>Open Folder</strong>, drag & drop files here, or try <strong>Load Sample PDF</strong>.</span>
         </div>
       `;
       initIcons();
       return;
     }
 
-    state.documents.forEach(doc => {
+    listToRender.forEach(doc => {
+      const fileName = doc.fileName || doc.name;
+      const isSelected = (state.currentDocFileName === fileName) || (doc.id === state.currentDocId);
+
+      let metaSubtext = '';
+      if (doc.status === 'loading') {
+        metaSubtext = '<span style="color: var(--primary); font-weight:600;">Downloading...</span>';
+      } else if (doc.status === 'cached' && !doc.totalPages) {
+        metaSubtext = '<span style="color: #10b981;">Cached (Ready)</span>';
+      } else if (doc.totalPages) {
+        metaSubtext = `<span>${doc.totalPages} pages</span> &bull; <span>${doc.size || ''}</span>`;
+      } else if (doc.status === 'error') {
+        metaSubtext = '<span style="color: #ef4444;">Error loading</span>';
+      } else {
+        metaSubtext = '<span style="color: var(--text-muted);">Available</span>';
+      }
+
       const item = document.createElement('div');
-      item.className = `doc-item ${doc.id === state.currentDocId ? 'active' : ''}`;
-      item.setAttribute('data-id', doc.id);
+      item.className = `doc-item ${isSelected ? 'active' : ''}`;
+      item.setAttribute('data-filename', fileName);
+      if (doc.id) item.setAttribute('data-id', doc.id);
+
       item.innerHTML = `
         <div class="doc-icon"><i data-lucide="file-text"></i></div>
         <div class="doc-details">
-          <div class="doc-name" title="${doc.name}">${doc.name}</div>
-          <div class="doc-meta">
-            <span>${doc.totalPages} pages</span> &bull; <span>${doc.size}</span>
-          </div>
+          <div class="doc-name" title="${fileName}">${fileName}</div>
+          <div class="doc-meta">${metaSubtext}</div>
         </div>
         <button class="btn-remove-doc icon-btn" title="Remove File">
           <i data-lucide="x"></i>
         </button>
       `;
 
-      item.addEventListener('click', () => selectDocument(doc.id));
-      item.querySelector('.btn-remove-doc').addEventListener('click', (e) => removeDocument(doc.id, e));
+      item.addEventListener('click', () => loadAndFocusBook(fileName));
+      item.querySelector('.btn-remove-doc').addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeDocumentByFileName(fileName);
+      });
 
       DOM.docList.appendChild(item);
     });
@@ -497,8 +718,10 @@
 
   function updateDocListActiveState() {
     document.querySelectorAll('.doc-item').forEach(item => {
+      const fileName = item.getAttribute('data-filename');
       const id = item.getAttribute('data-id');
-      item.classList.toggle('active', id === state.currentDocId);
+      const isActive = (state.currentDocFileName && fileName === state.currentDocFileName) || (state.currentDocId && id === state.currentDocId);
+      item.classList.toggle('active', isActive);
     });
   }
 
@@ -877,6 +1100,52 @@
     }
   }
 
+  async function forceRenderPageNeighborhood(docObj, targetPage) {
+    if (state.layoutMode !== 'continuous') return;
+
+    const total = docObj.totalPages;
+    const neighborhood = [
+      targetPage,
+      targetPage - 1,
+      targetPage + 1,
+      targetPage - 2,
+      targetPage + 2
+    ].filter(p => p >= 1 && p <= total);
+
+    try {
+      const page1 = await docObj.pdfDoc.getPage(1);
+      let scale = 1.0;
+      const unscaledViewport = page1.getViewport({ scale: 1.0, rotation: state.rotation });
+      const stageWidth = DOM.viewerStage.clientWidth - 80;
+      const stageHeight = DOM.viewerStage.clientHeight - 80;
+
+      if (state.zoomScale === 'page-width' || state.zoomScale === 'auto') {
+        scale = stageWidth / unscaledViewport.width;
+      } else if (state.zoomScale === 'page-fit') {
+        const scaleW = stageWidth / unscaledViewport.width;
+        const scaleH = stageHeight / unscaledViewport.height;
+        scale = Math.min(scaleW, scaleH);
+      } else if (typeof state.zoomScale === 'number') {
+        scale = state.zoomScale;
+      }
+
+      const outputScale = window.devicePixelRatio || 1;
+
+      for (const pNum of neighborhood) {
+        const containerEl = document.getElementById(`pdf-page-${pNum}`);
+        if (containerEl) {
+          const canvasEl = containerEl.querySelector('canvas');
+          if (canvasEl && !canvasEl.getAttribute('data-rendered')) {
+            canvasEl.setAttribute('data-rendered', 'true');
+            renderPageCanvasToContainer(docObj, pNum, containerEl, canvasEl, scale, outputScale);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Priority neighborhood rendering notice:", err);
+    }
+  }
+
   function jumpToPage(pageNum) {
     const docObj = state.documents.find(d => d.id === state.currentDocId);
     if (!docObj) return;
@@ -895,6 +1164,10 @@
             c.classList.toggle('active-page', num === pageNum);
           });
           targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+          // Priority render target page & surrounding neighborhood (p-2..p+2)
+          forceRenderPageNeighborhood(docObj, pageNum);
+
           setTimeout(() => {
             state.isScrollingToPage = false;
           }, 600);
