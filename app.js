@@ -3,7 +3,7 @@
  * PDF Viewer, Local Directory Scanner, and N-Up Layout PDF Exporter
  */
 
-(function() {
+(function () {
   'use strict';
 
   // State Management
@@ -46,7 +46,7 @@
     cacheDOMElements();
     initIcons();
     bindEvents();
-    
+
     // Automatically load all PDF documents from documents directory
     autoLoadFolderDocuments();
   });
@@ -54,19 +54,19 @@
   function cacheDOMElements() {
     DOM.app = document.getElementById('app');
     DOM.btnExportModal = document.getElementById('btn-export-modal');
-    
+
     DOM.sidebar = document.getElementById('sidebar');
     DOM.btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
     DOM.docList = document.getElementById('doc-list');
     DOM.thumbsList = document.getElementById('thumbs-list');
     DOM.docCount = document.getElementById('doc-count');
     DOM.docSearchInput = document.getElementById('doc-search-input');
-    
+
     DOM.pageNumInput = document.getElementById('page-num-input');
     DOM.pageCountDisplay = document.getElementById('page-count-display');
     DOM.btnPrevPage = document.getElementById('btn-prev-page');
     DOM.btnNextPage = document.getElementById('btn-next-page');
-    
+
     DOM.zoomSelect = document.getElementById('zoom-select');
     DOM.btnZoomIn = document.getElementById('btn-zoom-in');
     DOM.btnZoomOut = document.getElementById('btn-zoom-out');
@@ -76,13 +76,13 @@
     DOM.layoutModeLabel = document.getElementById('layout-mode-label');
     DOM.btnFullscreen = document.getElementById('btn-fullscreen');
     DOM.docTitleBadge = document.getElementById('doc-title-badge');
-    
+
     DOM.viewerStage = document.getElementById('viewer-stage');
     DOM.pdfCanvas = document.getElementById('pdf-canvas');
     DOM.pdfViewWrapper = document.getElementById('pdf-view-wrapper');
     DOM.viewerLoader = document.getElementById('viewer-loader');
     DOM.dropZone = document.getElementById('drop-zone');
-    
+
     // Export Modal Elements
     DOM.exportModal = document.getElementById('export-modal');
     DOM.btnCloseExportModal = document.getElementById('btn-close-export-modal');
@@ -95,7 +95,7 @@
     DOM.borderCheckbox = document.getElementById('border-checkbox');
     DOM.pageNumberCheckbox = document.getElementById('page-number-checkbox');
     DOM.exportPageRange = document.getElementById('export-page-range');
-    
+
     DOM.previewCanvas = document.getElementById('preview-canvas');
     DOM.previewSheetStage = document.getElementById('preview-sheet-stage');
     DOM.btnPrevSheet = document.getElementById('btn-prev-sheet');
@@ -105,7 +105,7 @@
     DOM.sumSourcePages = document.getElementById('sum-source-pages');
     DOM.sumPaperSpec = document.getElementById('sum-paper-spec');
     DOM.sumOutputSheets = document.getElementById('sum-output-sheets');
-    
+
     DOM.exportStatusText = document.getElementById('export-status-text');
     DOM.exportProgressBar = document.getElementById('export-progress-bar');
     DOM.exportProgressFill = document.getElementById('export-progress-fill');
@@ -121,7 +121,7 @@
   function bindEvents() {
     // Sidebar Toggles & Tabs
     DOM.btnToggleSidebar.addEventListener('click', toggleSidebar);
-    
+
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const tabTarget = e.currentTarget.getAttribute('data-tab');
@@ -152,7 +152,7 @@
 
     DOM.btnZoomIn.addEventListener('click', () => modifyZoom(0.2));
     DOM.btnZoomOut.addEventListener('click', () => modifyZoom(-0.2));
-    
+
     // Rotation Controls
     DOM.btnRotateLeft.addEventListener('click', () => rotateViewer(-90));
     DOM.btnRotateRight.addEventListener('click', () => rotateViewer(90));
@@ -161,7 +161,7 @@
     if (DOM.btnToggleLayout) {
       DOM.btnToggleLayout.addEventListener('click', toggleLayoutMode);
     }
-    
+
     // Fullscreen
     DOM.btnFullscreen.addEventListener('click', toggleFullscreen);
 
@@ -170,7 +170,7 @@
       e.preventDefault();
       DOM.dropZone.classList.remove('hidden');
     });
-    
+
     DOM.dropZone.addEventListener('dragleave', (e) => {
       e.preventDefault();
       DOM.dropZone.classList.add('hidden');
@@ -191,7 +191,7 @@
     DOM.btnExportModal.addEventListener('click', openExportModal);
     DOM.btnCloseExportModal.addEventListener('click', closeExportModal);
     DOM.btnCancelExport.addEventListener('click', closeExportModal);
-    
+
     // Custom Grid Input Listeners
     const handleGridInputChange = () => {
       const cols = Math.max(1, Math.min(10, parseInt(DOM.customCols.value, 10) || 1));
@@ -288,7 +288,7 @@
     state.activeSidebarTab = tabId;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    
+
     document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
     document.getElementById(tabId).classList.add('active');
 
@@ -349,7 +349,7 @@
         if (pdfResp.ok) {
           const arrayBuffer = await pdfResp.arrayBuffer();
           const docObj = await addPdfDocument(fileName, arrayBuffer.byteLength, arrayBuffer, false);
-          
+
           // Select the very first successfully loaded document immediately
           if (docObj && !firstDocSelected) {
             firstDocSelected = true;
@@ -386,7 +386,7 @@
 
   async function addPdfDocument(name, sizeBytes, arrayBuffer, autoSelect = true) {
     const docId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
-    
+
     try {
       // Load document via PDF.js
       const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
@@ -421,7 +421,7 @@
     state.currentDocId = docId;
     state.currentPageNum = 1;
     state.rotation = 0;
-    
+
     DOM.pageCountDisplay.textContent = docObj.totalPages;
     DOM.pageNumInput.max = docObj.totalPages;
     DOM.pageNumInput.value = 1;
@@ -488,7 +488,7 @@
 
       item.addEventListener('click', () => selectDocument(doc.id));
       item.querySelector('.btn-remove-doc').addEventListener('click', (e) => removeDocument(doc.id, e));
-      
+
       DOM.docList.appendChild(item);
     });
 
@@ -534,7 +534,7 @@
       DOM.btnToggleLayout.classList.remove('btn-primary');
       DOM.btnToggleLayout.classList.add('btn-secondary');
     }
-    
+
     initIcons();
   }
 
@@ -560,17 +560,17 @@
 
     if (state.layoutMode === 'single') {
       DOM.pdfViewWrapper.className = 'pdf-view-wrapper single-layout';
-      
+
       const pageDiv = document.createElement('div');
       pageDiv.className = 'pdf-page-container active-page';
       pageDiv.id = `pdf-page-${state.currentPageNum}`;
-      
+
       const canvas = document.createElement('canvas');
       canvas.id = 'pdf-canvas';
       pageDiv.appendChild(canvas);
 
       DOM.pdfViewWrapper.appendChild(pageDiv);
-      
+
       await renderSinglePageCanvas(docObj, state.currentPageNum, canvas);
       DOM.pageNumInput.value = state.currentPageNum;
       updateThumbnailSelection();
@@ -663,12 +663,12 @@
           if (maxRatio > 0.15 && activePageNum !== state.currentPageNum) {
             state.currentPageNum = activePageNum;
             DOM.pageNumInput.value = activePageNum;
-            
+
             document.querySelectorAll('.pdf-page-container').forEach(c => {
               const num = parseInt(c.getAttribute('data-page-num'), 10);
               c.classList.toggle('active-page', num === activePageNum);
             });
-            
+
             updateThumbnailSelection();
           }
         }, {
@@ -831,7 +831,7 @@
       const card = document.createElement('div');
       card.className = `thumb-card ${i === state.currentPageNum ? 'active' : ''}`;
       card.setAttribute('data-page', i);
-      
+
       const canvas = document.createElement('canvas');
       card.appendChild(canvas);
 
@@ -1051,10 +1051,10 @@
 
     // Update Stats Summary UI
     DOM.sumSourcePages.textContent = targetPages.length + " Page(s)";
-    
+
     const paperSpec = getPaperDimensions(state.export.paperSize, state.export.orientation);
     const sizeTitle = (state.export.paperSize === '8x13') ? '8" x 13"' :
-                      (state.export.paperSize === '8x11') ? '8" x 11"' : 'A4 (8.27" x 11.69")';
+      (state.export.paperSize === '8x11') ? '8" x 11"' : 'A4 (8.27" x 11.69")';
     DOM.sumPaperSpec.textContent = `${sizeTitle} (${state.export.orientation})`;
     DOM.sumOutputSheets.textContent = `${totalSheets} Sheet(s)`;
 
@@ -1071,18 +1071,18 @@
 
     const targetPages = parsePageRange(state.export.pageRange, docObj.totalPages);
     const paperSpec = getPaperDimensions(state.export.paperSize, state.export.orientation);
-    
+
     // Set Sheet Paper Container Aspect Ratio & Dimensions
     const stageMaxW = 550;
     const stageMaxH = 450;
     const scaleFactor = Math.min(stageMaxW / paperSpec.widthPt, stageMaxH / paperSpec.heightPt);
-    
+
     const canvasW = Math.floor(paperSpec.widthPt * scaleFactor);
     const canvasH = Math.floor(paperSpec.heightPt * scaleFactor);
 
     DOM.previewCanvas.width = canvasW;
     DOM.previewCanvas.height = canvasH;
-    
+
     DOM.previewSheetStage.style.width = canvasW + "px";
     DOM.previewSheetStage.style.height = canvasH + "px";
 
@@ -1127,7 +1127,7 @@
       // Draw PDF Page Content
       try {
         const pageCanvas = await getRenderedPageCanvas(docObj.pdfDoc, pageNum);
-        
+
         // Fit PDF page proportionally into tile box
         const aspect = pageCanvas.width / pageCanvas.height;
         let drawW = w;
@@ -1204,7 +1204,7 @@
     const { jsPDF } = window.jspdf;
     const targetPages = parsePageRange(state.export.pageRange, docObj.totalPages);
     const paperSpec = getPaperDimensions(state.export.paperSize, state.export.orientation);
-    
+
     const cols = state.export.nupCols;
     const rows = state.export.nupRows;
     const nupCapacity = cols * rows;
@@ -1219,10 +1219,10 @@
 
     const marginIn = getMarginInches(state.export.margin);
     const footerGapIn = state.export.drawPageNumbers ? 0.25 : 0;
-    
+
     const availableWIn = paperSpec.widthIn - (marginIn * 2);
     const availableHIn = paperSpec.heightIn - (marginIn * 2) - footerGapIn;
-    
+
     const gapIn = 0.1; // 0.1 inch spacing between grid cells
     const tileWIn = (availableWIn - (gapIn * (cols - 1))) / cols;
     const tileHIn = (availableHIn - (gapIn * (rows - 1))) / rows;
@@ -1287,7 +1287,7 @@
     const cleanDocName = docObj.name.replace(/\.pdf$/i, '');
     const paperLabel = state.export.paperSize.toUpperCase();
     const outputFilename = `Exported_${cleanDocName}_${paperLabel}_${cols}x${rows}Up.pdf`;
-    
+
     pdfExport.save(outputFilename);
 
     showExportProgress(false, 100, "Download complete!");

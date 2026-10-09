@@ -1,16 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LexPDF Studio - Advanced PDF Viewer & N-Up Export Tool</title>
-  <meta name="description" content="Sleek HTML/JS PDF viewer and layout exporter supporting custom 8x11 and 8x13 paper sizes, N-up multi-page grid layouts, and portrait/landscape orientation.">
-  
+  <meta name="description"
+    content="Sleek HTML/JS PDF viewer and layout exporter supporting custom 8x11 and 8x13 paper sizes, N-up multi-page grid layouts, and portrait/landscape orientation.">
+
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+
   <!-- PDF.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
@@ -20,7 +24,7 @@
 
   <!-- jsPDF CDN for creating N-Up formatted PDFs -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  
+
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -30,9 +34,10 @@
   <!-- App Styles -->
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body class="dark-theme">
   <div id="app" class="app-container">
-    
+
     <!-- Top Navigation Header -->
     <header class="app-header">
       <div class="brand">
@@ -55,7 +60,7 @@
 
     <!-- Main Workspace Container -->
     <div class="workspace">
-      
+
       <!-- Left Sidebar Panel -->
       <aside id="sidebar" class="sidebar">
         <div class="sidebar-tabs">
@@ -79,7 +84,8 @@
             <div class="empty-state">
               <i data-lucide="folder-search"></i>
               <p>No PDFs loaded yet.</p>
-              <span class="subtext">Click <strong>Open Folder</strong>, drag & drop files here, or try <strong>Load Sample PDF</strong>.</span>
+              <span class="subtext">Click <strong>Open Folder</strong>, drag & drop files here, or try <strong>Load
+                  Sample PDF</strong>.</span>
             </div>
           </div>
         </div>
@@ -102,7 +108,7 @@
 
       <!-- Main Viewer Area -->
       <main class="viewer-container">
-        
+
         <!-- Viewer Control Toolbar -->
         <div class="viewer-toolbar">
           <div class="toolbar-group">
@@ -156,7 +162,8 @@
           <div class="divider-vertical"></div>
 
           <div class="toolbar-group">
-            <button id="btn-toggle-layout" class="btn btn-secondary btn-sm" title="Toggle Page View (Continuous Scroll vs Single Page)">
+            <button id="btn-toggle-layout" class="btn btn-secondary btn-sm"
+              title="Toggle Page View (Continuous Scroll vs Single Page)">
               <i data-lucide="layers"></i>
               <span id="layout-mode-label">Continuous View</span>
             </button>
@@ -198,7 +205,7 @@
     <!-- Export & Layout Customizer Modal -->
     <div id="export-modal" class="modal-overlay hidden">
       <div class="modal-card">
-        
+
         <div class="modal-header">
           <div class="modal-title">
             <i data-lucide="layout-grid"></i>
@@ -213,17 +220,17 @@
         </div>
 
         <div class="modal-body">
-          
+
           <!-- Left Controls Column -->
           <div class="export-controls-panel">
-            
+
             <!-- Section 1: Pages Per Sheet (Custom Grid Layout) -->
             <div class="control-section">
               <label class="section-label">
                 <i data-lucide="grid"></i>
                 <span>(a) Pages Per Layout Sheet</span>
               </label>
-              
+
               <div class="custom-grid-card">
                 <div class="custom-grid-inputs">
                   <div class="grid-input-field">
@@ -249,7 +256,7 @@
                 <i data-lucide="file"></i>
                 <span>(b) Export Paper Size</span>
               </label>
-              
+
               <div class="radio-group-vertical">
                 <label class="radio-option highlight-option">
                   <input type="radio" name="paper-size" value="8x13">
@@ -283,7 +290,7 @@
                 <i data-lucide="compass"></i>
                 <span>(c) Page Orientation</span>
               </label>
-              
+
               <div class="segmented-control">
                 <button class="segment-btn" data-orientation="portrait">
                   <i data-lucide="file-input"></i>
@@ -302,7 +309,7 @@
                 <i data-lucide="sliders"></i>
                 <span>Page Formatting Options</span>
               </label>
-              
+
               <div class="options-form">
                 <div class="form-row">
                   <label for="margin-select">Sheet Margins:</label>
@@ -348,7 +355,8 @@
                 <button id="btn-prev-sheet" class="btn btn-sm btn-ghost" title="Previous Exported Sheet">
                   <i data-lucide="chevron-left"></i>
                 </button>
-                <span class="sheet-counter">Sheet <span id="current-sheet-num">1</span> of <span id="total-sheets-num">1</span></span>
+                <span class="sheet-counter">Sheet <span id="current-sheet-num">1</span> of <span
+                    id="total-sheets-num">1</span></span>
                 <button id="btn-next-sheet" class="btn btn-sm btn-ghost" title="Next Exported Sheet">
                   <i data-lucide="chevron-right"></i>
                 </button>
@@ -408,4 +416,5 @@
   <!-- App Scripts -->
   <script src="app.js"></script>
 </body>
+
 </html>
