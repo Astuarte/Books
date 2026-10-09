@@ -305,30 +305,65 @@
     });
   }
 
+  const DEFAULT_PDF_MANIFEST = [
+    "Duka_LegEth_Chapter2.pdf",
+    "Duka_LegEth_Chapter3.pdf",
+    "Duka_LegEth_Chapter4.pdf"
+  ];
+
   // File Loading Logic
   async function autoLoadFolderDocuments() {
-    showLoader(true, "Loading documents from folder...");
+    let fileList = [];
+
+    // Try fetching manifest.json
     try {
+      showLoader(true, "Scanning documents folder...");
       const response = await fetch('documents/manifest.json');
       if (response.ok) {
-        const fileList = await response.json();
-        for (const fileName of fileList) {
-          try {
-            const pdfResp = await fetch(`documents/${encodeURIComponent(fileName)}`);
-            if (pdfResp.ok) {
-              const arrayBuffer = await pdfResp.arrayBuffer();
-              await addPdfDocument(fileName, arrayBuffer.byteLength, arrayBuffer);
-            }
-          } catch (e) {
-            console.error("Failed to fetch PDF document: " + fileName, e);
-          }
+        const fetchedList = await response.json();
+        if (Array.isArray(fetchedList) && fetchedList.length > 0) {
+          fileList = fetchedList;
         }
       }
     } catch (err) {
-      console.error("Auto load documents failed", err);
-    } finally {
-      showLoader(false);
+      console.warn("Could not fetch manifest.json, using default book list", err);
     }
+
+    if (!fileList || fileList.length === 0) {
+      fileList = DEFAULT_PDF_MANIFEST;
+    }
+
+    let firstDocSelected = false;
+
+    for (let i = 0; i < fileList.length; i++) {
+      const fileName = fileList[i];
+      showLoader(true, `Loading ${fileName} (${i + 1} of ${fileList.length})...`);
+
+      try {
+        // Try candidate relative paths for GitHub Pages compatibility
+        let pdfResp = await fetch(`documents/${encodeURI(fileName)}`);
+        if (!pdfResp.ok) {
+          pdfResp = await fetch(`./documents/${encodeURI(fileName)}`);
+        }
+
+        if (pdfResp.ok) {
+          const arrayBuffer = await pdfResp.arrayBuffer();
+          const docObj = await addPdfDocument(fileName, arrayBuffer.byteLength, arrayBuffer, false);
+          
+          // Select the very first successfully loaded document immediately
+          if (docObj && !firstDocSelected) {
+            firstDocSelected = true;
+            selectDocument(docObj.id);
+          }
+        } else {
+          console.error(`Failed to fetch ${fileName}: HTTP status ${pdfResp.status}`);
+        }
+      } catch (e) {
+        console.error("Error loading PDF file: " + fileName, e);
+      }
+    }
+
+    showLoader(false);
   }
 
   async function handleFileList(files) {
@@ -340,7 +375,7 @@
     for (const file of pdfFiles) {
       try {
         const arrayBuffer = await file.arrayBuffer();
-        await addPdfDocument(file.name, file.size, arrayBuffer);
+        await addPdfDocument(file.name, file.size, arrayBuffer, true);
       } catch (err) {
         console.error("Error reading file: " + file.name, err);
       }
@@ -349,27 +384,34 @@
     showLoader(false);
   }
 
-  async function addPdfDocument(name, sizeBytes, arrayBuffer) {
+  async function addPdfDocument(name, sizeBytes, arrayBuffer, autoSelect = true) {
     const docId = 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     
-    // Load document via PDF.js
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-    const pdfDoc = await loadingTask.promise;
+    try {
+      // Load document via PDF.js
+      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+      const pdfDoc = await loadingTask.promise;
 
-    const docObj = {
-      id: docId,
-      name: name,
-      size: formatFileSize(sizeBytes),
-      data: arrayBuffer,
-      pdfDoc: pdfDoc,
-      totalPages: pdfDoc.numPages
-    };
+      const docObj = {
+        id: docId,
+        name: name,
+        size: formatFileSize(sizeBytes),
+        data: arrayBuffer,
+        pdfDoc: pdfDoc,
+        totalPages: pdfDoc.numPages
+      };
 
-    state.documents.push(docObj);
-    updateDocListUI();
+      state.documents.push(docObj);
+      updateDocListUI();
 
-    // Select if first or current
-    selectDocument(docId);
+      if (autoSelect) {
+        selectDocument(docId);
+      }
+      return docObj;
+    } catch (err) {
+      console.error("PDF.js document parse error for " + name, err);
+      return null;
+    }
   }
 
   function selectDocument(docId) {
