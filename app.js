@@ -291,7 +291,8 @@
     }
     DOM.sidebar.classList.toggle('collapsed', state.sidebarCollapsed);
     if (DOM.sidebarOverlay) {
-      DOM.sidebarOverlay.classList.toggle('active', !state.sidebarCollapsed);
+      const isMobile = window.innerWidth <= 768;
+      DOM.sidebarOverlay.classList.toggle('active', isMobile && !state.sidebarCollapsed);
     }
     // Re-adjust zoom if auto-fit
     setTimeout(() => {
@@ -499,9 +500,11 @@
         const fileUrl = `documents/${encodeURI(fileName)}`;
         loadingTask = pdfjsLib.getDocument({
           url: fileUrl,
-          rangeChunkSize: 65536,
-          disableAutoFetch: true,
-          disableStream: false
+          rangeChunkSize: 131072,
+          disableAutoFetch: false,
+          disableStream: false,
+          cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+          cMapPacked: true
         });
       }
 
@@ -558,7 +561,10 @@
           docObj.data = data.buffer;
           await PDFCacheDB.set(fileName, data.buffer);
           updateDocListUI();
+          backgroundCacheRemainingBooks();
         }).catch(e => console.warn("Background data stream capture note:", e));
+      } else {
+        backgroundCacheRemainingBooks();
       }
 
     } catch (err) {
@@ -988,16 +994,27 @@
             restoredEl.scrollIntoView({ behavior: 'auto', block: 'start' });
           }
         } else {
-          // Immediately render the first 5 pages of the document
-          const initialPagesToRender = Math.min(5, docObj.totalPages);
-          for (let i = 1; i <= initialPagesToRender; i++) {
-            const container = pageContainers[i - 1];
-            const canvas = container ? container.querySelector('canvas') : null;
-            if (canvas && !canvas.getAttribute('data-rendered')) {
-              canvas.setAttribute('data-rendered', 'true');
-              await renderPageCanvasToContainer(docObj, i, container, canvas, scale, outputScale);
-            }
+          // Render Page 1 IMMEDIATELY first so user sees Page 1 without any delay
+          const container1 = pageContainers[0];
+          const canvas1 = container1 ? container1.querySelector('canvas') : null;
+          if (canvas1 && !canvas1.getAttribute('data-rendered')) {
+            canvas1.setAttribute('data-rendered', 'true');
+            await renderPageCanvasToContainer(docObj, 1, container1, canvas1, scale, outputScale);
           }
+
+          // Asynchronously render pages 2..5 in background so page 1 is displayed instantly!
+          (async () => {
+            const initialPagesToRender = Math.min(5, docObj.totalPages);
+            for (let i = 2; i <= initialPagesToRender; i++) {
+              if (!state.currentDocId || docObj.id !== state.currentDocId) break;
+              const container = pageContainers[i - 1];
+              const canvas = container ? container.querySelector('canvas') : null;
+              if (canvas && !canvas.getAttribute('data-rendered')) {
+                canvas.setAttribute('data-rendered', 'true');
+                await renderPageCanvasToContainer(docObj, i, container, canvas, scale, outputScale);
+              }
+            }
+          })();
         }
 
         setTimeout(() => {
