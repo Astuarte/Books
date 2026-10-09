@@ -60,6 +60,7 @@
     DOM.sidebar = document.getElementById('sidebar');
     DOM.sidebarOverlay = document.getElementById('sidebar-overlay');
     DOM.btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+    DOM.btnMobileSidebarToggle = document.getElementById('btn-mobile-sidebar-toggle');
     DOM.docList = document.getElementById('doc-list');
     DOM.thumbsList = document.getElementById('thumbs-list');
     DOM.docCount = document.getElementById('doc-count');
@@ -123,7 +124,10 @@
   // Event Listeners Binding
   function bindEvents() {
     // Sidebar Toggles & Tabs
-    DOM.btnToggleSidebar.addEventListener('click', toggleSidebar);
+    DOM.btnToggleSidebar.addEventListener('click', () => toggleSidebar());
+    if (DOM.btnMobileSidebarToggle) {
+      DOM.btnMobileSidebarToggle.addEventListener('click', () => toggleSidebar());
+    }
     if (DOM.sidebarOverlay) {
       DOM.sidebarOverlay.addEventListener('click', () => toggleSidebar(true));
     }
@@ -387,6 +391,24 @@
   };
 
   let activeDownloadController = null;
+  let activeLoadingTask = null;
+  let backgroundFetchController = null;
+
+  function stopAllBackgroundDownloads() {
+    if (backgroundFetchController) {
+      backgroundFetchController.abort();
+      backgroundFetchController = null;
+    }
+  }
+
+  function stopActivePDFLoadingTask() {
+    if (activeLoadingTask) {
+      try {
+        activeLoadingTask.destroy();
+      } catch (e) {}
+      activeLoadingTask = null;
+    }
+  }
 
   // File Loading Logic
   async function autoLoadFolderDocuments() {
@@ -437,7 +459,13 @@
     let meta = state.documentsMeta.find(m => m.fileName === fileName);
     if (!meta) return;
 
-    // Abort previous download if any active
+    // Instantly abort any active background fetches so 100% of network sockets free up
+    stopAllBackgroundDownloads();
+
+    // Instantly destroy previous PDF.js loading task and worker
+    stopActivePDFLoadingTask();
+
+    // Abort previous download controller if active
     if (activeDownloadController) {
       activeDownloadController.abort();
       activeDownloadController = null;
@@ -477,6 +505,7 @@
         });
       }
 
+      activeLoadingTask = loadingTask;
       const pdfDoc = await loadingTask.promise;
 
       if (controller.signal.aborted) return;
@@ -518,12 +547,9 @@
         }).catch(e => console.warn("Background data stream capture note:", e));
       }
 
-      // Store remaining books in background cache
-      backgroundCacheRemainingBooks();
-
     } catch (err) {
-      if (err.name === 'AbortError') {
-        console.log(`Download aborted for ${fileName}`);
+      if (err.name === 'AbortError' || (err.message && err.message.includes('destroyed'))) {
+        console.log(`Download/task aborted for ${fileName}`);
       } else {
         console.error(`Error loading ${fileName}:`, err);
         meta.status = 'error';
@@ -534,28 +560,41 @@
       if (activeDownloadController === controller) {
         activeDownloadController = null;
       }
+      if (activeLoadingTask === loadingTask) {
+        activeLoadingTask = null;
+      }
     }
   }
 
   async function backgroundCacheRemainingBooks() {
-    const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1000));
+    stopAllBackgroundDownloads();
+    const controller = new AbortController();
+    backgroundFetchController = controller;
+
+    const scheduleIdle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1500));
     scheduleIdle(async () => {
       for (const meta of state.documentsMeta) {
-        if (activeDownloadController) break;
+        if (controller.signal.aborted || activeDownloadController) break;
         if (!meta.pdfDoc) {
           const isCached = await PDFCacheDB.has(meta.fileName);
           if (!isCached) {
             try {
-              let pdfResp = await fetch(`documents/${encodeURI(meta.fileName)}`);
-              if (!pdfResp.ok) pdfResp = await fetch(`./documents/${encodeURI(meta.fileName)}`);
-              if (pdfResp.ok) {
+              let pdfResp = await fetch(`documents/${encodeURI(meta.fileName)}`, { signal: controller.signal });
+              if (!pdfResp.ok) {
+                pdfResp = await fetch(`./documents/${encodeURI(meta.fileName)}`, { signal: controller.signal });
+              }
+              if (pdfResp.ok && !controller.signal.aborted) {
                 const buf = await pdfResp.arrayBuffer();
-                await PDFCacheDB.set(meta.fileName, buf);
-                meta.status = 'cached';
-                updateDocListUI();
+                if (!controller.signal.aborted) {
+                  await PDFCacheDB.set(meta.fileName, buf);
+                  meta.status = 'cached';
+                  updateDocListUI();
+                }
               }
             } catch (e) {
-              console.warn(`[Background Cache] Failed to cache ${meta.fileName}:`, e);
+              if (e.name !== 'AbortError') {
+                console.warn(`[Background Cache] Failed to cache ${meta.fileName}:`, e);
+              }
             }
           }
         }
@@ -826,6 +865,29 @@
     initIcons();
   }
 
+  function calculateFitScale(unscaledViewport) {
+    const isMobile = window.innerWidth <= 768;
+    const stagePadding = isMobile ? 12 : 80;
+    const stageWidth = Math.max(160, DOM.viewerStage.clientWidth - stagePadding);
+    const stageHeight = Math.max(160, DOM.viewerStage.clientHeight - stagePadding);
+
+    let effectiveZoom = state.zoomScale;
+    if (isMobile && (effectiveZoom === 'auto' || typeof effectiveZoom !== 'number')) {
+      effectiveZoom = 'page-width';
+    }
+
+    if (effectiveZoom === 'page-width' || effectiveZoom === 'auto') {
+      return stageWidth / unscaledViewport.width;
+    } else if (effectiveZoom === 'page-fit') {
+      const scaleW = stageWidth / unscaledViewport.width;
+      const scaleH = stageHeight / unscaledViewport.height;
+      return Math.min(scaleW, scaleH);
+    } else if (typeof effectiveZoom === 'number') {
+      return effectiveZoom;
+    }
+    return stageWidth / unscaledViewport.width;
+  }
+
   // Rendering PDF Pages in Main Viewer (Continuous by default)
   async function renderCurrentDocument() {
     const docObj = state.documents.find(d => d.id === state.currentDocId);
@@ -870,20 +932,8 @@
       try {
         // Get first page scale for viewport calculation
         const page1 = await docObj.pdfDoc.getPage(1);
-        let scale = 1.0;
         const unscaledViewport = page1.getViewport({ scale: 1.0, rotation: state.rotation });
-        const stageWidth = DOM.viewerStage.clientWidth - 80;
-        const stageHeight = DOM.viewerStage.clientHeight - 80;
-
-        if (state.zoomScale === 'page-width' || state.zoomScale === 'auto') {
-          scale = stageWidth / unscaledViewport.width;
-        } else if (state.zoomScale === 'page-fit') {
-          const scaleW = stageWidth / unscaledViewport.width;
-          const scaleH = stageHeight / unscaledViewport.height;
-          scale = Math.min(scaleW, scaleH);
-        } else if (typeof state.zoomScale === 'number') {
-          scale = state.zoomScale;
-        }
+        const scale = calculateFitScale(unscaledViewport);
 
         const outputScale = window.devicePixelRatio || 1;
         const placeholderW = Math.floor(unscaledViewport.width * scale);
@@ -1005,20 +1055,8 @@
     showLoader(true, "Rendering page...");
     try {
       const page = await docObj.pdfDoc.getPage(pageNum);
-      let scale = 1.0;
       const unscaledViewport = page.getViewport({ scale: 1.0, rotation: state.rotation });
-      const stageWidth = DOM.viewerStage.clientWidth - 80;
-      const stageHeight = DOM.viewerStage.clientHeight - 80;
-
-      if (state.zoomScale === 'page-width' || state.zoomScale === 'auto') {
-        scale = stageWidth / unscaledViewport.width;
-      } else if (state.zoomScale === 'page-fit') {
-        const scaleW = stageWidth / unscaledViewport.width;
-        const scaleH = stageHeight / unscaledViewport.height;
-        scale = Math.min(scaleW, scaleH);
-      } else if (typeof state.zoomScale === 'number') {
-        scale = state.zoomScale;
-      }
+      const scale = calculateFitScale(unscaledViewport);
 
       const outputScale = window.devicePixelRatio || 1;
       const viewport = page.getViewport({ scale: scale, rotation: state.rotation });
@@ -1206,20 +1244,8 @@
 
     try {
       const page1 = await docObj.pdfDoc.getPage(1);
-      let scale = 1.0;
       const unscaledViewport = page1.getViewport({ scale: 1.0, rotation: state.rotation });
-      const stageWidth = DOM.viewerStage.clientWidth - 80;
-      const stageHeight = DOM.viewerStage.clientHeight - 80;
-
-      if (state.zoomScale === 'page-width' || state.zoomScale === 'auto') {
-        scale = stageWidth / unscaledViewport.width;
-      } else if (state.zoomScale === 'page-fit') {
-        const scaleW = stageWidth / unscaledViewport.width;
-        const scaleH = stageHeight / unscaledViewport.height;
-        scale = Math.min(scaleW, scaleH);
-      } else if (typeof state.zoomScale === 'number') {
-        scale = state.zoomScale;
-      }
+      const scale = calculateFitScale(unscaledViewport);
 
       const outputScale = window.devicePixelRatio || 1;
 
