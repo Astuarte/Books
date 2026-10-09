@@ -58,6 +58,7 @@
     DOM.btnExportModal = document.getElementById('btn-export-modal');
 
     DOM.sidebar = document.getElementById('sidebar');
+    DOM.sidebarOverlay = document.getElementById('sidebar-overlay');
     DOM.btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
     DOM.docList = document.getElementById('doc-list');
     DOM.thumbsList = document.getElementById('thumbs-list');
@@ -123,6 +124,9 @@
   function bindEvents() {
     // Sidebar Toggles & Tabs
     DOM.btnToggleSidebar.addEventListener('click', toggleSidebar);
+    if (DOM.sidebarOverlay) {
+      DOM.sidebarOverlay.addEventListener('click', () => toggleSidebar(true));
+    }
 
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -275,9 +279,16 @@
   }
 
   // Sidebar Logic
-  function toggleSidebar() {
-    state.sidebarCollapsed = !state.sidebarCollapsed;
+  function toggleSidebar(forceState) {
+    if (typeof forceState === 'boolean') {
+      state.sidebarCollapsed = forceState;
+    } else {
+      state.sidebarCollapsed = !state.sidebarCollapsed;
+    }
     DOM.sidebar.classList.toggle('collapsed', state.sidebarCollapsed);
+    if (DOM.sidebarOverlay) {
+      DOM.sidebarOverlay.classList.toggle('active', !state.sidebarCollapsed);
+    }
     // Re-adjust zoom if auto-fit
     setTimeout(() => {
       if (typeof state.zoomScale !== 'number') {
@@ -622,22 +633,67 @@
     }
   }
 
+  // Remember last page position per document (in memory & localStorage)
+  function saveCurrentDocumentPage(pageNum) {
+    if (!state.currentDocFileName) return;
+    const docObj = state.documents.find(d => d.id === state.currentDocId);
+    if (docObj) docObj.lastPageNum = pageNum;
+    const meta = state.documentsMeta.find(m => m.fileName === state.currentDocFileName);
+    if (meta) meta.lastPageNum = pageNum;
+
+    try {
+      localStorage.setItem('BookShare_LastPage_' + state.currentDocFileName, pageNum.toString());
+    } catch (e) {
+      console.warn('LocalStorage save notice:', e);
+    }
+  }
+
+  function getSavedDocumentPage(fileName, totalPages) {
+    let savedPage = 1;
+    const meta = state.documentsMeta.find(m => m.fileName === fileName);
+    if (meta && meta.lastPageNum) {
+      savedPage = meta.lastPageNum;
+    } else {
+      const docObj = state.documents.find(d => d.name === fileName);
+      if (docObj && docObj.lastPageNum) {
+        savedPage = docObj.lastPageNum;
+      } else {
+        try {
+          const val = localStorage.getItem('BookShare_LastPage_' + fileName);
+          if (val) savedPage = parseInt(val, 10) || 1;
+        } catch (e) {}
+      }
+    }
+    if (totalPages && totalPages > 0) {
+      savedPage = Math.min(Math.max(1, savedPage), totalPages);
+    }
+    return savedPage;
+  }
+
   function selectDocument(docId) {
     const docObj = state.documents.find(d => d.id === docId);
     if (!docObj) return;
 
     state.currentDocId = docId;
     state.currentDocFileName = docObj.name;
-    state.currentPageNum = 1;
+
+    // Restore last remembered page position
+    const rememberedPage = getSavedDocumentPage(docObj.name, docObj.totalPages);
+    state.currentPageNum = rememberedPage;
     state.rotation = 0;
 
     DOM.pageCountDisplay.textContent = docObj.totalPages;
     DOM.pageNumInput.max = docObj.totalPages;
-    DOM.pageNumInput.value = 1;
+    DOM.pageNumInput.value = rememberedPage;
     DOM.docTitleBadge.textContent = docObj.name;
 
     updateDocListActiveState();
     renderCurrentPage();
+
+    // Auto-collapse off-canvas sidebar on mobile screens for maximum reading space
+    if (window.innerWidth <= 768) {
+      toggleSidebar(true);
+    }
 
     if (state.activeSidebarTab === 'tab-thumbs') {
       renderSidebarThumbnails();
@@ -734,6 +790,7 @@
   }
 
   function toggleLayoutMode() {
+    state.isScrollingToPage = true;
     state.layoutMode = state.layoutMode === 'continuous' ? 'single' : 'continuous';
     updateLayoutToggleUI();
     renderCurrentDocument();
@@ -857,7 +914,33 @@
 
         showLoader(false);
 
-        // Lazy Render Observer
+        state.isScrollingToPage = true;
+
+        // Priority render target page & neighborhood if restored page is > 1
+        if (state.currentPageNum > 1) {
+          await forceRenderPageNeighborhood(docObj, state.currentPageNum);
+          const restoredEl = document.getElementById(`pdf-page-${state.currentPageNum}`);
+          if (restoredEl) {
+            restoredEl.scrollIntoView({ behavior: 'auto', block: 'start' });
+          }
+        } else {
+          // Immediately render the first 5 pages of the document
+          const initialPagesToRender = Math.min(5, docObj.totalPages);
+          for (let i = 1; i <= initialPagesToRender; i++) {
+            const container = pageContainers[i - 1];
+            const canvas = container ? container.querySelector('canvas') : null;
+            if (canvas && !canvas.getAttribute('data-rendered')) {
+              canvas.setAttribute('data-rendered', 'true');
+              await renderPageCanvasToContainer(docObj, i, container, canvas, scale, outputScale);
+            }
+          }
+        }
+
+        setTimeout(() => {
+          state.isScrollingToPage = false;
+        }, 400);
+
+        // Lazy Render Observer for remaining pages on scroll
         state.pageObserver = new IntersectionObserver((entries) => {
           entries.forEach(entry => {
             if (entry.isIntersecting) {
@@ -894,6 +977,7 @@
           if (maxRatio > 0.15 && activePageNum !== state.currentPageNum) {
             state.currentPageNum = activePageNum;
             DOM.pageNumInput.value = activePageNum;
+            saveCurrentDocumentPage(activePageNum);
 
             document.querySelectorAll('.pdf-page-container').forEach(c => {
               const num = parseInt(c.getAttribute('data-page-num'), 10);
@@ -1161,6 +1245,7 @@
     if (pageNum >= 1 && pageNum <= docObj.totalPages) {
       state.currentPageNum = pageNum;
       DOM.pageNumInput.value = pageNum;
+      saveCurrentDocumentPage(pageNum);
       updateThumbnailSelection();
 
       if (state.layoutMode === 'continuous') {
