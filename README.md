@@ -1,4 +1,4 @@
-# LexPDF Studio 📄⚖️
+# BookShare 📄⚖️
 
 > **Sleek HTML/JS PDF Viewer & Custom N-Up Layout Exporter**  
 > Designed for law students, legal practitioners, researchers, and professionals who need high-speed PDF viewing, directory scanning, and customizable multi-page sheet layout exports (including **8"x11"** and **8"x13"** paper sizes).
@@ -39,12 +39,12 @@
 
 ## 🚀 How to Run Locally
 
-Since LexPDF Studio is built entirely with client-side HTML, CSS, and JavaScript, no backend server or node installation is required!
+Since BookShare is built entirely with client-side HTML, CSS, and JavaScript, no backend server or node installation is required!
 
 1. Clone or download this repository:
    ```bash
-   git clone https://github.com/your-username/lexpdf-studio.git
-   cd lexpdf-studio
+   git clone https://github.com/your-username/bookshare.git
+   cd bookshare
    ```
 
 2. Open `index.html` in any web browser (Chrome, Edge, Firefox, Safari):
@@ -62,16 +62,16 @@ Since LexPDF Studio is built entirely with client-side HTML, CSS, and JavaScript
    ```bash
    git init
    git add .
-   git commit -m "Initial commit of LexPDF Studio"
+   git commit -m "Initial commit of BookShare"
    git branch -M main
-   git remote add origin https://github.com/your-username/lexpdf-studio.git
+   git remote add origin https://github.com/your-username/bookshare.git
    git push -u origin main
    ```
 
 2. Turn on GitHub Pages:
    - Go to your repository on GitHub -> **Settings** -> **Pages**.
    - Under **Source**, select `main` branch and `/ (root)` folder.
-   - Click **Save**. Your site will be published at `https://your-username.github.io/lexpdf-studio/`.
+   - Click **Save**. Your site will be published at `https://your-username.github.io/bookshare/`.
 
 ---
 
