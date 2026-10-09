@@ -451,31 +451,27 @@
 
     try {
       let arrayBuffer = await PDFCacheDB.get(fileName);
+      let loadingTask;
+
       if (arrayBuffer) {
         meta.status = 'cached';
+        loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
       } else {
-        // Download from server with cancellation support
-        let pdfResp = await fetch(`documents/${encodeURI(fileName)}`, { signal: controller.signal });
-        if (!pdfResp.ok) {
-          pdfResp = await fetch(`./documents/${encodeURI(fileName)}`, { signal: controller.signal });
-        }
-        if (!pdfResp.ok) throw new Error(`HTTP ${pdfResp.status}`);
-
-        arrayBuffer = await pdfResp.arrayBuffer();
-        // Save into IndexedDB for instant future reloads
-        await PDFCacheDB.set(fileName, arrayBuffer);
+        const fileUrl = `documents/${encodeURI(fileName)}`;
+        loadingTask = pdfjsLib.getDocument({
+          url: fileUrl,
+          rangeChunkSize: 65536,
+          disableAutoFetch: true,
+          disableStream: false
+        });
       }
+
+      const pdfDoc = await loadingTask.promise;
 
       if (controller.signal.aborted) return;
 
-      // Parse with PDF.js
-      const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
-      const pdfDoc = await loadingTask.promise;
-
       meta.pdfDoc = pdfDoc;
       meta.totalPages = pdfDoc.numPages;
-      meta.data = arrayBuffer;
-      meta.size = formatFileSize(arrayBuffer.byteLength);
       meta.status = 'ready';
 
       let docObj = state.documents.find(d => d.name === fileName);
@@ -483,7 +479,7 @@
         docObj = {
           id: meta.id,
           name: fileName,
-          size: meta.size,
+          size: meta.size || 'Ready',
           data: arrayBuffer,
           pdfDoc: pdfDoc,
           totalPages: pdfDoc.numPages
@@ -498,6 +494,18 @@
       }
 
       showLoader(false);
+
+      // Save full ArrayBuffer asynchronously in background once stream completes
+      if (!arrayBuffer) {
+        pdfDoc.getData().then(async (data) => {
+          meta.data = data.buffer;
+          meta.size = formatFileSize(data.buffer.byteLength);
+          docObj.size = meta.size;
+          docObj.data = data.buffer;
+          await PDFCacheDB.set(fileName, data.buffer);
+          updateDocListUI();
+        }).catch(e => console.warn("Background data stream capture note:", e));
+      }
 
       // Store remaining books in background cache
       backgroundCacheRemainingBooks();
